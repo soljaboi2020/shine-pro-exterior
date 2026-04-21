@@ -1,0 +1,14 @@
+{
+  "name": "shine-pro-exterior",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marketing + online-booking website for ShinePro Exterior Care (Sanford, FL).",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
