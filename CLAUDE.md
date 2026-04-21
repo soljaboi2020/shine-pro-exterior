@@ -151,9 +151,11 @@ User confirmed 2026-04-21: for counts that fall BETWEEN the anchor values above,
 - [x] Confirm business hours ✅ Mon–Fri 11:30am–8pm, Sat–Sun all day (2026-04-21)
 - [x] Build public marketing site ✅ (2026-04-21 — first build)
 - [x] Build booking flow UI (service → date → time → address + gate code + pet + contact → confirm) ✅ (2026-04-21 — frontend complete, backend stubbed)
-- [ ] Create Google Cloud project + enable Calendar API + OAuth consent screen
-- [ ] Guide Tyson through one-time Google Calendar connect (generates refresh token)
-- [ ] Wire `/api/slots` + `/api/book` endpoints
+- [x] Create Google Cloud project + enable Calendar API + OAuth consent screen ✅ (2026-04-21 — BUILD #3)
+- [x] Wire `/api/book` endpoint to Google Calendar ✅ (2026-04-21 — BUILD #3, live when `GOOGLE_REFRESH_TOKEN` is set)
+- [x] Build `/api/google-connect` + `/api/google-callback` OAuth flow ✅ (2026-04-21 — BUILD #3)
+- [ ] Guide Tyson through one-time Google Calendar connect (generates refresh token) — **in progress; awaiting Allow-dance + refresh-token paste into Vercel + redeploy**
+- [ ] Wire `/api/slots` endpoint for live free/busy (not yet implemented — booking form currently trusts the customer to pick a free slot)
 - [ ] Wire email confirmations (Resend.com free tier)
 - [ ] Wire SMS 24h-before reminder + post-job text (Twilio)
 - [ ] Embed Google Reviews
@@ -246,6 +248,23 @@ First deploy will give you a URL like `shine-pro-exterior.vercel.app`. Share it 
 | Logo looks pixelated | We're using the 800×800 JPG. We can swap in a higher-res PNG later. |
 
 ## 📅 Change Log
+- **2026-04-21 (BUILD #3 — Google Calendar OAuth + real booking integration)** — The booking form is no longer a stub. A real customer submission now lands directly on Tyson's Google Calendar.
+  - **Dependency added:** `googleapis@^144.0.0` in `package.json` (official Google Node client; used for OAuth2 + Calendar v3).
+  - **New endpoint `GET /api/google-connect`** — one-time authorization kickoff. Tyson visits `https://shine-pro-exterior.vercel.app/api/google-connect` while signed into `Tysont5076@gmail.com`. Shows a navy-themed intro card ("Connect your Google Calendar"), then a gold "→ Connect Google Calendar" button that forwards him to Google's OAuth consent screen. Requests `access_type: 'offline'` + `prompt: 'consent'` so Google reliably returns a refresh_token. Scope is narrow: `https://www.googleapis.com/auth/calendar.events` (not full-calendar access).
+  - **New endpoint `GET /api/google-callback`** — Google redirects here after Tyson clicks Allow. Exchanges the `code` query param for tokens via `oauth2Client.getToken(code)`. Three failure cases handled with friendly branded pages: (a) Tyson clicked Cancel (`error` query param), (b) malformed redirect (no `code`), (c) no refresh_token returned (happens if the app was previously authorized — page links straight to `myaccount.google.com/permissions` with recovery instructions). On success: shows the refresh token in a navy `<div class="token-box">` with a "📋 Copy token" button (uses `navigator.clipboard.writeText`) and a numbered checklist for pasting it into Vercel as `GOOGLE_REFRESH_TOKEN` + redeploying. Token is only shown ONCE by design.
+  - **Upgraded `POST /api/book`** — now has two branches:
+    - **Stub branch (fallback):** if any of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_REFRESH_TOKEN` is missing, logs the payload and returns `{ ok: true, stub: true }` — same behavior as BUILD #1. Lets the site keep working during the setup window before the refresh token is pasted in.
+    - **Live branch:** when all 4 env vars are present, constructs an OAuth2 client, calls `calendar.events.insert` on `GOOGLE_CALENDAR_ID` (defaults to `primary`). Event `summary` = `"ShinePro: {service} — {name}"`, `location` = customer address (so Tyson's phone shows "Directions" in the event). `description` is an emoji-labeled dump — 👤 name / 📞 phone / ✉️ email / 📍 address / 🪟 windows / 🔑 gate code / 🐕 pets / 🎟️ coupon / 📝 notes — empty fields are filtered out so the description stays clean. Returns `{ ok: true, stub: false, eventId, eventLink }` on success.
+  - **Time slot → event window mapping:** `TIME_SLOTS` table translates each booking-form time label (e.g. `"Late morning (11:30 AM – 1 PM)"`) to start/end hours. Event is created with `timeZone: "America/New_York"` so EDT/EST is handled automatically. Unknown labels fall back to 1–3 PM.
+  - **Security nuance:** the OAuth consent screen is in Testing mode (fine permanently for <100 users per Google's policy). `calendar.events` scope — we can only add/edit events we create, not read Tyson's whole calendar.
+  - **One-time OAuth flow (done by Tyson, not the dev):** After deploy → visit `/api/google-connect` in a browser signed into `Tysont5076@gmail.com` → click Allow on Google's screen → the callback page shows the refresh token → developer pastes it into Vercel as `GOOGLE_REFRESH_TOKEN` → redeploy. After that, every booking auto-creates a calendar event with zero further human interaction.
+  - **Security incident resolved (2026-04-21):** During setup, the original OAuth Client Secret was briefly visible in a screenshot. User rotated the secret in Google Cloud Console → Clients → Reset Client Secret. New secret was pasted directly into Vercel (never screenshotted). No OAuth flow had yet completed, so no damage.
+  - **Public Suffix List gotcha resolved:** Google rejected `vercel.app` as an Authorized Domain ("must be a top private domain") because `vercel.app` is on the Public Suffix List. Fix: used the full subdomain `shine-pro-exterior.vercel.app` instead. Documented here so a future Claude doesn't hit the same wall.
+  - **Files touched (BUILD #3):** `package.json` (added googleapis dep), `api/book.js` (full rewrite: stub → OAuth/Calendar insert with stub fallback), `api/google-connect.js` (new), `api/google-callback.js` (new). All four CRLF-applied (Rule #2).
+  - **Vercel env vars now required on the project:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (= `https://shine-pro-exterior.vercel.app/api/google-callback`), and after the one-time Allow dance: `GOOGLE_REFRESH_TOKEN`. Optional: `GOOGLE_CALENDAR_ID` (defaults to `primary`).
+  - **Folder structure update:** `api/` now contains `book.js`, `google-connect.js`, `google-callback.js`.
+  - **NOT yet built (still to come in later builds):** Resend email confirmations to the customer, Twilio SMS (24h-before reminder + post-job Review-ask text), admin dashboard, customer portal, blog scaffolding, referral codes, recurring-discount flow, seasonal banner editor. Calendar integration was the highest-leverage piece and is the foundation everything else hooks into.
+
 - **2026-04-21 (BUILD #2 — Quick wins: lightbox, How-It-Works, ZIP checker, exit-intent, city pages)** — User approved 5 of 7 suggested enhancements (1, 2, 5, 6, 7 — not #3 Meet Tyson or #4 TikTok embed). All five shipped in one pass:
   - **(1) Gallery lightbox** — every `.gallery-item` is now click-to-enlarge. Full-screen navy-tinted overlay with `max-height: 78vh` contained image, prev/next arrows, keyboard support (← → Esc), backdrop-click to close, counter in the bottom-center ("1 / 4"). Catalog is built from the DOM at init time so adding new gallery items doesn't require a JS update. Each gallery figcaption got a gold "🔍 Tap to enlarge" tap-hint badge.
   - **(2) "How It Works" 3-step section** — added between Hero and Services. Three cards: (1) Book online, (2) Tyson confirms, (3) Sparkling windows. Each card has a floating navy numbered badge, an emoji icon, a bold heading, and a plain-English paragraph. Hover lift + shadow styling matches the existing service cards.
