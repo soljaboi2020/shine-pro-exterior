@@ -159,7 +159,7 @@ function initSmoothScroll() {
 function interpolateQuote(n) {
   if (n <= 0) return { label: '—', note: 'Enter a number of windows to see your estimate.' };
   if (n < 10) return { label: '$125 minimum', note: 'We charge a $125 minimum for jobs under 10 windows.' };
-  if (n > 50) return { label: '$500+', note: 'For jobs this big, call Tyson directly for an exact quote.' };
+  if (n > 50) return { label: '$500+', note: 'For jobs this big, call us directly for an exact quote.' };
 
   // Find the two anchors that bracket n
   let lo = PRICE_ANCHORS[0], hi = PRICE_ANCHORS[PRICE_ANCHORS.length - 1];
@@ -181,8 +181,8 @@ function interpolateQuote(n) {
     : `$${minPrice} – $${maxPrice}`;
 
   const note = (n === 10 || n === 20 || n === 30 || n === 40 || n === 50)
-    ? 'Estimate only. Text or call Tyson at (407) 754-5565 for an exact quote.'
-    : 'In-between estimate. Call Tyson at (407) 754-5565 for an exact quote.';
+    ? 'Estimate only. Text or call us at (407) 754-5565 for an exact quote.'
+    : 'In-between estimate. Call us at (407) 754-5565 for an exact quote.';
 
   return { label, note };
 }
@@ -387,7 +387,7 @@ async function submitBooking() {
     showStep(5);
   } catch (err) {
     console.error(err);
-    alert('Sorry, something went wrong. Please text Tyson directly at (407) 754-5565.');
+    alert('Sorry, something went wrong. Please text us directly at (407) 754-5565.');
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = '📤 Send request';
@@ -659,11 +659,11 @@ function initZipChecker() {
       return;
     }
     if (SERVICE_ZIPS.primary.includes(zip)) {
-      setState('zip-ok', `✅ <strong>You're in our area!</strong> ZIP ${zip} is right in Tyson's service zone. <a href="#" id="zip-book-link">Book now →</a>`);
+      setState('zip-ok', `✅ <strong>You're in our area!</strong> ZIP ${zip} is right in our service zone. <a href="#" id="zip-book-link">Book now →</a>`);
     } else if (SERVICE_ZIPS.close.includes(zip)) {
-      setState('zip-close', `🤔 <strong>You're close!</strong> ZIP ${zip} is on the edge of our 1-hour radius. Give Tyson a call at <a href="tel:+14077545565">(407) 754-5565</a> — he can usually make it work.`);
+      setState('zip-close', `🤔 <strong>You're close!</strong> ZIP ${zip} is on the edge of our service area. Give us a call at <a href="tel:+14077545565">(407) 754-5565</a> — we can usually make it work.`);
     } else {
-      setState('zip-bad', `❌ <strong>Outside our service area.</strong> ZIP ${zip} is too far from Sanford, FL. But call <a href="tel:+14077545565">(407) 754-5565</a> — Tyson may have a referral for you.`);
+      setState('zip-bad', `❌ <strong>Outside our service area.</strong> ZIP ${zip} is too far from Central Florida. But call <a href="tel:+14077545565">(407) 754-5565</a> — we may have a referral for you.`);
     }
     // Wire the freshly-injected "Book now →" link if present
     $('#zip-book-link')?.addEventListener('click', (e) => { e.preventDefault(); openBooking(); });

@@ -87,14 +87,25 @@ export default async function handler(req, res) {
       const timeMin = nyTimeToIso(date, 0);            // midnight NY
       const timeMax = nyTimeToIso(date, 24 * 60);      // next midnight NY
 
-      const { data } = await calendar.freebusy.query({
-        requestBody: { timeMin, timeMax, timeZone: TIMEZONE, items: [{ id: calendarId }] }
+      // We use events.list (not freebusy.query) because our OAuth scope is
+      // `calendar.events` — which does NOT grant freebusy access. events.list
+      // returns the same information for our purposes and works with the
+      // narrower scope we requested during the one-time Build #3 OAuth grant.
+      const { data } = await calendar.events.list({
+        calendarId,
+        timeMin,
+        timeMax,
+        singleEvents: true,        // expand recurring events
+        orderBy: 'startTime',
+        maxResults: 250
       });
-      const calBusy = data?.calendars?.[calendarId]?.busy || [];
-      busy = calBusy.map(b => ({
-        start: new Date(b.start).getTime(),
-        end:   new Date(b.end).getTime()
-      }));
+      busy = (data.items || [])
+        .filter(ev => ev.status !== 'cancelled')
+        .filter(ev => ev.start?.dateTime && ev.end?.dateTime)   // ignore all-day
+        .map(ev => ({
+          start: new Date(ev.start.dateTime).getTime(),
+          end:   new Date(ev.end.dateTime).getTime()
+        }));
     }
 
     // Filter by free/busy, expanding existing events by BUFFER_MIN in both directions.

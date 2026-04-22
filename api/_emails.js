@@ -48,19 +48,33 @@ async function sendMail({ to, subject, html, text }) {
   }
 
   try {
+    // Resend test-mode gotcha: when sending via onboarding@resend.dev
+    // (no custom domain verified), you can ONLY send to the email on
+    // your Resend account. Any OTHER recipient — TO *or* CC — triggers
+    // a 403 validation error that blocks the ENTIRE send. So we only
+    // CC Tyson when `RESEND_DOMAIN_VERIFIED=true` is set in Vercel,
+    // which Malachi should flip after verifying a custom domain. Until
+    // then: customer gets the email, Tyson sees the booking via his
+    // Google Calendar notification (which fires instantly on his phone
+    // the moment /api/book inserts the event — verified Build #3).
+    const domainReady = process.env.RESEND_DOMAIN_VERIFIED === 'true';
+    const mail = {
+      from: FROM,
+      to: [to],
+      subject, html, text,
+      reply_to: OWNER_EMAIL    // customer replies always go to Tyson
+    };
+    if (domainReady) {
+      mail.cc = [OWNER_EMAIL];
+    }
+
     const resp = await fetch(RESEND_API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        from: FROM,
-        to: [to],
-        cc: [OWNER_EMAIL],       // Tyson always gets a copy
-        subject, html, text,
-        reply_to: OWNER_EMAIL    // customer replies go straight to Tyson
-      })
+      body: JSON.stringify(mail)
     });
 
     if (!resp.ok) {
