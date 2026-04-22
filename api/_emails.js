@@ -2,16 +2,23 @@
 // Resend email helper
 // =====================================================================
 // Uses Resend's REST API directly (no SDK dependency added) to send
-// booking + reschedule confirmations. Uses onboarding@resend.dev as
-// the sender so no domain verification is required.
+// booking + reschedule confirmations.
 //
-// Requires env var: RESEND_API_KEY  (already in Vercel per Malachi)
+// As of 2026-04-22, the `shineproexterior.com` domain is VERIFIED on
+// Resend (DKIM + SPF + MX all green), so we send FROM our real business
+// address (`bookings@shineproexterior.com`) instead of the old
+// `onboarding@resend.dev` test sender. Customers see a clean, branded
+// email with no "via resend.dev" disclaimer in Gmail.
+//
+// Requires env vars:
+//   - RESEND_API_KEY            (already in Vercel)
+//   - RESEND_DOMAIN_VERIFIED    (set to 'true' to re-enable CC Tyson)
 // =====================================================================
 
 import { signToken } from './_token.js';
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const FROM = 'ShinePro Exterior <onboarding@resend.dev>';
+const FROM = 'ShinePro Exterior <bookings@shineproexterior.com>';
 const OWNER_EMAIL = 'Tysont5076@gmail.com';
 const OWNER_PHONE = '(407) 754-5565';
 const PHONE_TEL   = '+14077545565';
@@ -48,15 +55,17 @@ async function sendMail({ to, subject, html, text }) {
   }
 
   try {
-    // Resend test-mode gotcha: when sending via onboarding@resend.dev
-    // (no custom domain verified), you can ONLY send to the email on
-    // your Resend account. Any OTHER recipient — TO *or* CC — triggers
-    // a 403 validation error that blocks the ENTIRE send. So we only
-    // CC Tyson when `RESEND_DOMAIN_VERIFIED=true` is set in Vercel,
-    // which Malachi should flip after verifying a custom domain. Until
-    // then: customer gets the email, Tyson sees the booking via his
-    // Google Calendar notification (which fires instantly on his phone
-    // the moment /api/book inserts the event — verified Build #3).
+    // Resend test-mode gotcha (historical): when sending via
+    // onboarding@resend.dev (no domain verified), you could only send
+    // to the email on your Resend account. Any OTHER recipient — TO
+    // *or* CC — triggered a 403. We gated the CC-to-Tyson on a
+    // `RESEND_DOMAIN_VERIFIED` env var so the gate flips to on the
+    // moment the custom domain is verified.
+    //
+    // As of 2026-04-22 `shineproexterior.com` IS verified on Resend,
+    // so once Malachi sets RESEND_DOMAIN_VERIFIED=true in Vercel and
+    // redeploys, Tyson will be CC'd on every booking confirmation
+    // automatically (running email paper trail).
     const domainReady = process.env.RESEND_DOMAIN_VERIFIED === 'true';
     const mail = {
       from: FROM,
@@ -142,8 +151,8 @@ function buildConfirmationContent(b, rescheduleUrl, eventLink, isReschedule) {
           ${eventLink ? `<p style="font-size:13px;color:#64748b;text-align:center;margin:8px 0 0;"><a href="${eventLink}" style="color:#3b82f6;text-decoration:none;">View on Tyson's calendar →</a></p>` : ''}
         </td></tr>
         <tr><td style="background:#f8fafc;padding:18px 32px;text-align:center;color:#64748b;font-size:12px;">
-          ShinePro Exterior Care · Sanford, FL · ${OWNER_PHONE}<br>
-          Sent because you booked a cleaning at shine-pro-exterior.vercel.app.
+          ShinePro Exterior Care · Central Florida · ${OWNER_PHONE}<br>
+          Sent because you booked a cleaning at shineproexterior.com.
         </td></tr>
       </table>
     </td></tr>
