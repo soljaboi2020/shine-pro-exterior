@@ -92,6 +92,35 @@
     </p>
   </section>
 
+  <!-- Reschedule modal -->
+  <div id="resched-overlay" class="hidden fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4">
+    <div class="card max-w-md w-full">
+      <h3 class="text-xl font-bold text-slate-900 mb-1">🔄 Reschedule booking</h3>
+      <p class="text-sm text-slate-600 mb-3">Pick a new date + time. The customer will get an email confirming the change.</p>
+      <div id="resched-summary" class="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 text-sm">
+        <!-- filled by JS -->
+      </div>
+      <form id="resched-form" class="space-y-3">
+        <div>
+          <label class="text-sm font-semibold text-slate-700">New date</label>
+          <input id="resched-date" type="date" class="input mt-1" required />
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-slate-700">New time</label>
+          <select id="resched-time" class="input mt-1" required>
+            <option value="" disabled selected>Pick a date first…</option>
+          </select>
+          <p class="text-xs text-slate-500 mt-1">⏱️ Each job is a 2-hour window. Only slots Tyson is free for are shown.</p>
+        </div>
+        <p id="resched-error" class="hidden text-sm text-red-600"></p>
+        <div class="flex gap-2 pt-2">
+          <button type="submit" class="btn-primary flex-1">✅ Reschedule + email customer</button>
+          <button type="button" id="resched-cancel" class="btn-ghost flex-1">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Block-off modal -->
   <div id="block-overlay" class="hidden fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4">
     <div class="card max-w-md w-full">
@@ -183,6 +212,9 @@
 
   $('#refresh-btn')?.addEventListener('click', loadJobs);
 
+  // Stashed job lookup so the reschedule modal can find the full job by eventId.
+  const jobsById = Object.create(null);
+
   // -------- Dashboard --------
   async function showDashboard() {
     loginScreen.classList.add('hidden');
@@ -191,6 +223,8 @@
     setInterval(updateExpiresLabel, 60000);
     loadJobs();
     wireBlockModal();
+    wireReschedModal();
+    wireReschedDelegation();
   }
 
   function updateExpiresLabel() {
@@ -232,6 +266,12 @@
 
   function renderGroups(groups) {
     const el = $('#job-groups');
+    // refresh the jobs-by-id cache on every render so the reschedule modal
+    // can look up full job details from just the eventId on the button
+    Object.keys(jobsById).forEach(k => delete jobsById[k]);
+    ['today','tomorrow','thisWeek','later'].forEach(key => {
+      (groups[key] || []).forEach(j => { if (j.eventId) jobsById[j.eventId] = j; });
+    });
     const sections = [
       { key: 'today',    title: '📅 Today',        empty: 'Nothing on the books for today.' },
       { key: 'tomorrow', title: '⏭️ Tomorrow',      empty: 'No jobs tomorrow.' },
@@ -259,6 +299,11 @@
     const callBtn = j.phone ? `<a class="btn-ghost" href="tel:${escapeAttr(j.phone)}">📞 Call</a>` : '';
     const mapBtn  = j.address ? `<a class="btn-ghost" href="https://maps.google.com/?q=${encodeURIComponent(j.address)}" target="_blank">🗺️ Directions</a>` : '';
     const calBtn  = j.link ? `<a class="btn-ghost" href="${escapeAttr(j.link)}" target="_blank">📅 Event</a>` : '';
+    // Reschedule is only offered for real ShinePro bookings (not Tyson's
+    // manually-added events and not the "BLOCKED:" holds).
+    const reschedBtn = (j.isShinePro && !j.isBlock)
+      ? `<button type="button" class="btn-ghost" data-resched="${escapeAttr(j.eventId)}">🔄 Reschedule</button>`
+      : '';
 
     const details = [
       j.windowCount && ['🪟 Windows', j.windowCount],
@@ -288,7 +333,7 @@
               ${details.map(([l, v]) => `<div><span class="text-slate-500">${l}:</span> <span class="text-slate-800">${escapeHtml(v)}</span></div>`).join('')}
             </dl>
           </details>` : ''}
-        <footer class="flex flex-wrap gap-2 mt-3">${callBtn}${textBtn}${mapBtn}${calBtn}</footer>
+        <footer class="flex flex-wrap gap-2 mt-3">${callBtn}${textBtn}${mapBtn}${calBtn}${reschedBtn}</footer>
       </article>`;
   }
 
@@ -336,6 +381,134 @@
         btn.disabled = false; btn.textContent = 'Block it';
       }
     });
+  }
+
+  // -------- Reschedule modal --------
+  let activeReschedJob = null;   // the job currently being edited in the modal
+
+  // Any "🔄 Reschedule" button on any job card bubbles here via delegation
+  // (we don't have to re-attach handlers on every loadJobs() rerender).
+  function wireReschedDelegation() {
+    $('#job-groups').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-resched]');
+      if (!btn) return;
+      const eventId = btn.getAttribute('data-resched');
+      const job = jobsById[eventId];
+      if (!job) return;
+      openReschedModal(job);
+    });
+  }
+
+  function openReschedModal(job) {
+    activeReschedJob = job;
+    const overlay = $('#resched-overlay');
+    const summary = $('#resched-summary');
+    const err = $('#resched-error');
+    err.classList.add('hidden');
+
+    summary.innerHTML = `
+      <div class="font-semibold text-slate-900">${escapeHtml(job.service || job.summary || 'Booking')}</div>
+      ${job.name ? `<div class="text-slate-700">👤 ${escapeHtml(job.name)}</div>` : ''}
+      <div class="text-slate-500 text-xs mt-1">
+        Currently: <strong>${escapeHtml(job.dateLabel)} · ${escapeHtml(job.timeLabel)}</strong>
+      </div>
+      ${job.email ? `<div class="text-slate-500 text-xs">✉️ ${escapeHtml(job.email)}</div>` :
+        '<div class="text-amber-600 text-xs mt-1">⚠️ No customer email on file — calendar will update but no email will be sent.</div>'}
+    `;
+
+    // Prefill the date to today (earliest reschedulable date) and clear time.
+    const today = new Date();
+    const iso = today.toISOString().slice(0, 10);
+    const dateInput = $('#resched-date');
+    dateInput.min = iso;
+    dateInput.value = iso;
+    $('#resched-time').innerHTML = '<option value="" disabled selected>Loading available times…</option>';
+    loadReschedSlots(iso);
+
+    overlay.classList.remove('hidden');
+  }
+
+  function closeReschedModal() {
+    $('#resched-overlay').classList.add('hidden');
+    activeReschedJob = null;
+  }
+
+  async function loadReschedSlots(date) {
+    const timeSel = $('#resched-time');
+    if (!date) {
+      timeSel.innerHTML = '<option value="" disabled selected>Pick a date first…</option>';
+      return;
+    }
+    timeSel.innerHTML = '<option value="" disabled selected>Loading available times…</option>';
+    try {
+      const r = await fetch('/api/slots?date=' + encodeURIComponent(date), { cache: 'no-store' });
+      const data = await r.json();
+      const slots = Array.isArray(data.available) ? data.available : [];
+      if (slots.length === 0) {
+        timeSel.innerHTML = '<option value="" disabled selected>No openings that day — try another date</option>';
+        return;
+      }
+      timeSel.innerHTML = '<option value="" disabled selected>Pick a time…</option>' +
+        slots.map(s => `<option value="${escapeAttr(s.value)}">${escapeHtml(s.label)}</option>`).join('');
+    } catch (e) {
+      timeSel.innerHTML = '<option value="" disabled selected>Could not load slots — try again</option>';
+    }
+  }
+
+  function wireReschedModal() {
+    $('#resched-cancel').addEventListener('click', closeReschedModal);
+    $('#resched-overlay').addEventListener('click', (e) => {
+      if (e.target === $('#resched-overlay')) closeReschedModal();
+    });
+    $('#resched-date').addEventListener('change', (e) => loadReschedSlots(e.target.value));
+    $('#resched-date').addEventListener('input',  (e) => loadReschedSlots(e.target.value));
+
+    $('#resched-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!activeReschedJob) return;
+      const err = $('#resched-error');
+      err.classList.add('hidden');
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.textContent = 'Rescheduling…';
+      try {
+        const r = await fetch('/api/admin-reschedule', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + localStorage.getItem(STORAGE_KEY)
+          },
+          body: JSON.stringify({
+            eventId: activeReschedJob.eventId,
+            newDate: $('#resched-date').value,
+            newTime: $('#resched-time').value
+          })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || 'Could not reschedule.');
+        closeReschedModal();
+        // Small toast at top so Tyson sees confirmation (dashboard reload
+        // happens right after, so keep it quick).
+        const note = data.emailSent
+          ? '✅ Rescheduled + customer emailed.'
+          : '✅ Rescheduled (no email — missing customer email).';
+        showToast(note);
+        loadJobs();
+      } catch (e2) {
+        err.textContent = e2.message || 'Something went wrong.';
+        err.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = '✅ Reschedule + email customer';
+      }
+    });
+  }
+
+  // Minimal toast (no external dep)
+  function showToast(msg) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;font-weight:700;padding:10px 18px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.18);z-index:60;font-size:14px;';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3200);
   }
 
   /* helpers */
