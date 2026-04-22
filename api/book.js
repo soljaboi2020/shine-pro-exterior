@@ -19,11 +19,17 @@
 // =====================================================================
 
 import { google } from 'googleapis';
+import { sendBookingConfirmation } from './_emails.js';
 
-// Mapping from the dropdown LABEL the user picks on the booking form
-// to the actual start/end hour we'll use on the calendar event.
-// Keep these in sync with the booking modal options in script.js.
-const TIME_SLOTS = {
+// Job duration — kept in sync with /api/slots.js.
+// Booking form posts preferredTime in "HH:MM" 24h format (e.g. "13:30").
+// The legacy label-based dropdown still works via the fallback table below.
+const JOB_DURATION_MIN = 120; // 2 hours
+
+// Legacy fallback: older versions of the booking form sent a human label.
+// Keep this table so a cached copy of the old frontend still creates a
+// sensible calendar event. New frontend sends "HH:MM" and skips this entirely.
+const LEGACY_TIME_SLOTS = {
   'Morning (8 AM – 11 AM) — weekends only': { startH: 8,  startM: 0,  endH: 11, endM: 0  },
   'Late morning (11:30 AM – 1 PM)':           { startH: 11, startM: 30, endH: 13, endM: 0  },
   'Afternoon (1 PM – 4 PM)':                  { startH: 13, startM: 0,  endH: 16, endM: 0  },
@@ -99,12 +105,27 @@ export default async function handler(req, res) {
       summary
     });
 
+    // -------- Fire confirmation email (non-blocking for the response) --------
+    // We await so we can report email status in the response, but a failed
+    // email never voids the booking — the calendar event is the source of truth.
+    const siteUrl = resolveSiteUrl(req);
+    const emailResult = await sendBookingConfirmation({
+      booking: body,
+      eventId: data.id,
+      eventLink: data.htmlLink,
+      siteUrl
+    }).catch(err => {
+      console.error('[ShinePro] sendBookingConfirmation threw:', err);
+      return { sent: false, reason: 'exception' };
+    });
+
     return res.status(200).json({
       ok: true,
       stub: false,
       message: 'Booking confirmed! You should see it on Tyson\'s calendar.',
       eventId: data.id,
-      eventLink: data.htmlLink
+      eventLink: data.htmlLink,
+      emailSent: emailResult.sent === true
     });
   } catch (err) {
     console.error('[ShinePro] /api/book error:', err);
@@ -118,12 +139,27 @@ export default async function handler(req, res) {
 
 /* ---------- helpers ---------- */
 
-// Turn the customer's date ("YYYY-MM-DD") + time-label into ISO
-// start/end strings. We leave them "naive" (no offset) and let Google
-// interpret them via the `timeZone: "America/New_York"` field.
-function buildEventWindow(dateStr, timeLabel) {
-  const slot = TIME_SLOTS[timeLabel] || { startH: 13, startM: 0, endH: 15, endM: 0 };
+// Turn the customer's date ("YYYY-MM-DD") + time into ISO start/end strings.
+// Two accepted time formats:
+//   1. "HH:MM"  — new format from /api/slots (e.g. "13:30"). End = start + JOB_DURATION_MIN.
+//   2. Legacy label — "Afternoon (1 PM – 4 PM)" etc.  Looked up in LEGACY_TIME_SLOTS.
+// We leave ISO strings "naive" (no offset) and let Google Calendar interpret
+// them via the `timeZone: "America/New_York"` field on the event.
+function buildEventWindow(dateStr, timeStr) {
   const [y, m, d] = String(dateStr).split('-').map(Number);
+
+  // Modern format: "HH:MM"
+  if (typeof timeStr === 'string' && /^\d{2}:\d{2}$/.test(timeStr)) {
+    const [hh, mm] = timeStr.split(':').map(Number);
+    const startMin = hh * 60 + mm;
+    const endMin   = startMin + JOB_DURATION_MIN;
+    const startISO = toNaiveISO(y, m, d, Math.floor(startMin / 60), startMin % 60);
+    const endISO   = toNaiveISO(y, m, d, Math.floor(endMin   / 60), endMin   % 60);
+    return { startISO, endISO };
+  }
+
+  // Legacy label fallback (backwards compat with older cached frontends)
+  const slot = LEGACY_TIME_SLOTS[timeStr] || { startH: 13, startM: 0, endH: 15, endM: 0 };
   const startISO = toNaiveISO(y, m, d, slot.startH, slot.startM);
   const endISO   = toNaiveISO(y, m, d, slot.endH,   slot.endM);
   return { startISO, endISO };
@@ -132,6 +168,19 @@ function buildEventWindow(dateStr, timeLabel) {
 function toNaiveISO(y, m, d, h, min) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${y}-${pad(m)}-${pad(d)}T${pad(h)}:${pad(min)}:00`;
+}
+
+// Figure out the public site URL (used to build the reschedule link in emails).
+// Order: explicit SITE_URL env > Vercel's auto-injected VERCEL_URL > request host.
+function resolveSiteUrl(req) {
+  if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/+$/, '');
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  const host = req?.headers?.host;
+  if (host) {
+    const proto = (req.headers['x-forwarded-proto'] || 'https').split(',')[0];
+    return `${proto}://${host}`;
+  }
+  return 'https://shine-pro-exterior.vercel.app';
 }
 
 // Build the event description body. Skips empty fields so the

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reschedule your booking — ShinePro Exterior</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0a1738" />
+  <link rel="icon" type="image/jpeg" href="/assets/logo/logo-square-navy.jpg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .btn-primary { background:#eab308; color:#0a1738; font-weight:800; padding:14px 24px; border-radius:12px; font-size:16px; transition:all .15s; }
+    .btn-primary:hover:not(:disabled) { filter:brightness(1.06); transform:translateY(-1px); }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-ghost { background:#f1f5f9; color:#0f172a; font-weight:600; padding:12px 20px; border-radius:10px; font-size:15px; }
+    .input { padding:12px 14px; border:1px solid #cbd5e1; border-radius:10px; font-size:16px; width:100%; background:#fff; }
+    .input:focus { outline:2px solid #3b82f6; outline-offset:1px; border-color:#3b82f6; }
+    .card { background:#fff; border-radius:18px; padding:32px 28px; box-shadow:0 4px 24px rgba(10,23,56,0.08); }
+    .label { display:block; font-size:14px; font-weight:600; color:#334155; margin-bottom:8px; }
+    .pill { display:inline-block; background:#dbeafe; color:#1e40af; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <main class="max-w-xl mx-auto px-4 py-10">
+    <header class="text-center mb-6">
+      <div class="inline-block mb-3">
+        <img src="/assets/logo/logo-square-navy.jpg" alt="ShinePro Exterior" class="w-20 h-20 rounded-2xl shadow" />
+      </div>
+      <h1 class="text-3xl font-extrabold text-slate-900">Reschedule your booking</h1>
+      <p class="text-slate-600 mt-2">Pick a new date and time that works better for you.</p>
+    </header>
+
+    <!-- Loading state -->
+    <section id="rs-loading" class="card text-center">
+      <div class="text-slate-600">Loading your booking…</div>
+    </section>
+
+    <!-- Error state -->
+    <section id="rs-error" class="card hidden border-2 border-red-200 bg-red-50">
+      <div class="text-2xl mb-2">😕</div>
+      <h2 class="text-xl font-bold text-red-900 mb-2">Couldn't open this link</h2>
+      <p id="rs-error-msg" class="text-red-800 mb-4"></p>
+      <p class="text-slate-700 text-sm">Please text Tyson directly at <a href="tel:+14077545565" class="font-semibold text-blue-600">(407) 754-5565</a> and he'll take care of it.</p>
+    </section>
+
+    <!-- Main form (hidden until booking info loads) -->
+    <section id="rs-form-wrap" class="card hidden">
+      <div id="rs-current" class="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm">
+        <div class="pill mb-2">Current booking</div>
+        <div class="text-slate-900 font-semibold" id="rs-current-summary"></div>
+        <div class="text-slate-600 mt-1" id="rs-current-address"></div>
+      </div>
+
+      <form id="rs-form" class="space-y-4">
+        <div>
+          <label class="label" for="rs-date">New date</label>
+          <input id="rs-date" type="date" class="input" required />
+        </div>
+        <div>
+          <label class="label" for="rs-time">New time</label>
+          <select id="rs-time" class="input" required disabled>
+            <option value="">Pick a date first…</option>
+          </select>
+          <p class="text-xs text-slate-500 mt-2">⏱️ Each job is a 2-hour window. We only show slots Tyson is actually free for.</p>
+        </div>
+        <div class="pt-4 flex flex-col sm:flex-row gap-3">
+          <button type="submit" class="btn-primary flex-1">✅ Confirm reschedule</button>
+          <a href="/" class="btn-ghost text-center flex-1 flex items-center justify-center">Cancel</a>
+        </div>
+      </form>
+    </section>
+
+    <!-- Success state -->
+    <section id="rs-success" class="card hidden border-2 border-emerald-200 bg-emerald-50">
+      <div class="text-3xl mb-2">🎉</div>
+      <h2 class="text-2xl font-extrabold text-emerald-900 mb-2">You're all set!</h2>
+      <p class="text-emerald-800 mb-2" id="rs-success-msg"></p>
+      <p class="text-slate-700 text-sm mb-4">We've sent you an updated confirmation email. Tyson can see the change on his calendar too.</p>
+      <a href="/" class="btn-primary inline-block">← Back to ShinePro</a>
+    </section>
+
+    <footer class="text-center text-xs text-slate-500 mt-8">
+      Need help? Text Tyson at <a href="tel:+14077545565" class="text-blue-600 font-semibold">(407) 754-5565</a>.
+    </footer>
+  </main>
+
+<script>
+/* =======================================================
+   Reschedule page logic
+   URL: /reschedule?token=<signed-eventId>
+   ======================================================= */
+(function () {
+  const $ = (s) => document.querySelector(s);
+
+  const params = new URLSearchParams(location.search);
+  const token  = params.get('token') || '';
+  if (!token) {
+    showError('This reschedule link is missing its token.');
+    return;
+  }
+
+  const loadingEl = $('#rs-loading');
+  const errorEl   = $('#rs-error');
+  const formWrap  = $('#rs-form-wrap');
+  const successEl = $('#rs-success');
+  const dateInput = $('#rs-date');
+  const timeSel   = $('#rs-time');
+
+  // Set min date = today
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  dateInput.min = `${yyyy}-${mm}-${dd}`;
+
+  // 1) Load the current booking
+  fetch(`/api/booking-info?token=${encodeURIComponent(token)}`, { cache: 'no-store' })
+    .then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Could not load this booking.');
+      return data;
+    })
+    .then(info => {
+      const prettyDate = new Date(info.date + 'T12:00:00Z').toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
+      });
+      $('#rs-current-summary').textContent = `${info.service || 'Service'} — ${prettyDate} at ${info.timeLabel || info.time}`;
+      $('#rs-current-address').textContent = info.address ? `📍 ${info.address}` : '';
+      loadingEl.classList.add('hidden');
+      formWrap.classList.remove('hidden');
+
+      // Default the date picker to the existing date so customer can just change time
+      if (info.date) dateInput.value = info.date;
+      refreshSlots();
+    })
+    .catch(err => showError(err.message || String(err)));
+
+  // 2) Date → load slots
+  dateInput.addEventListener('change', refreshSlots);
+  dateInput.addEventListener('input',  refreshSlots);
+
+  async function refreshSlots() {
+    const date = dateInput.value;
+    if (!date) {
+      setTimeOptions(timeSel, 'Pick a date first…', []);
+      timeSel.disabled = true;
+      return;
+    }
+    setTimeOptions(timeSel, 'Loading available times…', []);
+    timeSel.disabled = true;
+    try {
+      const r = await fetch(`/api/slots?date=${encodeURIComponent(date)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error('slots');
+      const data = await r.json();
+      const slots = Array.isArray(data?.available) ? data.available : [];
+      if (!slots.length) {
+        setTimeOptions(timeSel, 'No openings that day — try another date', []);
+        timeSel.disabled = true;
+        return;
+      }
+      setTimeOptions(timeSel, 'Pick a time…', slots);
+      timeSel.disabled = false;
+    } catch {
+      setTimeOptions(timeSel, 'Pick a time…', fallbackSlots(date));
+      timeSel.disabled = false;
+    }
+  }
+
+  // 3) Submit reschedule
+  $('#rs-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newDate = dateInput.value;
+    const newTime = timeSel.value;
+    if (!newDate || !newTime) return;
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = 'Rescheduling…';
+
+    try {
+      const r = await fetch('/api/reschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newDate, newTime })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Reschedule failed.');
+
+      const pretty = new Date(newDate + 'T12:00:00Z').toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
+      });
+      $('#rs-success-msg').textContent = `Your booking is now on ${pretty} at ${to12h(newTime)}.`;
+      formWrap.classList.add('hidden');
+      successEl.classList.remove('hidden');
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = '✅ Confirm reschedule';
+      alert(err.message || 'Something went wrong. Please text Tyson at (407) 754-5565.');
+    }
+  });
+
+  /* helpers */
+  function setTimeOptions(sel, placeholder, slots) {
+    sel.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = placeholder;
+    sel.appendChild(ph);
+    for (const s of slots) {
+      const o = document.createElement('option');
+      o.value = s.value; o.textContent = s.label;
+      sel.appendChild(o);
+    }
+  }
+  function showError(msg) {
+    loadingEl.classList.add('hidden');
+    formWrap.classList.add('hidden');
+    $('#rs-error-msg').textContent = msg;
+    errorEl.classList.remove('hidden');
+  }
+  function to12h(hhmm) {
+    const [h, m] = hhmm.split(':').map(Number);
+    const ampm = h < 12 ? 'AM' : 'PM';
+    const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+  }
+  function fallbackSlots(date) {
+    const dow = new Date(date + 'T12:00:00Z').getUTCDay();
+    const weekend = (dow === 0 || dow === 6);
+    return weekend
+      ? [{value:'08:00',label:'8:00 AM'},{value:'09:00',label:'9:00 AM'},{value:'10:00',label:'10:00 AM'},{value:'11:00',label:'11:00 AM'},{value:'12:00',label:'12:00 PM'},{value:'13:00',label:'1:00 PM'},{value:'14:00',label:'2:00 PM'},{value:'15:00',label:'3:00 PM'},{value:'16:00',label:'4:00 PM'},{value:'17:00',label:'5:00 PM'},{value:'18:00',label:'6:00 PM'}]
+      : [{value:'11:30',label:'11:30 AM'},{value:'12:30',label:'12:30 PM'},{value:'13:30',label:'1:30 PM'},{value:'14:30',label:'2:30 PM'},{value:'15:30',label:'3:30 PM'},{value:'16:30',label:'4:30 PM'},{value:'17:30',label:'5:30 PM'}];
+  }
+})();
+</script>
+</body>
+</html>

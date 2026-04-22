@@ -318,11 +318,18 @@ function validateStep(n) {
 }
 
 function buildBookingPayload() {
+  const timeSel = $('#book-time');
+  const timeValue = timeSel ? timeSel.value : '';
+  // Human-readable label ("1:00 PM") — used for the confirmation summary + success page.
+  const timeLabel = (timeSel && timeSel.selectedIndex >= 0 && timeSel.options[timeSel.selectedIndex])
+    ? timeSel.options[timeSel.selectedIndex].text
+    : timeValue;
   return {
     service:      ($$('input[name="service"]').find(r => r.checked)?.value) || '',
     windowCount:  $('#window-count-input').value || null,
     preferredDate:$('#book-date').value,
-    preferredTime:$('#book-time').value,
+    preferredTime:timeValue,          // "HH:MM" — what the API expects
+    preferredTimeLabel: timeLabel,    // "1:00 PM" — what humans see
     name:         $('#book-name').value.trim(),
     phone:        $('#book-phone').value.trim(),
     email:        $('#book-email').value.trim(),
@@ -341,7 +348,7 @@ function renderBookingSummary() {
     line('Service', p.service),
     p.windowCount ? line('Windows', p.windowCount) : '',
     line('Date',    p.preferredDate),
-    line('Time',    p.preferredTime),
+    line('Time',    p.preferredTimeLabel || p.preferredTime),
     line('Name',    p.name),
     line('Phone',   p.phone),
     line('Email',   p.email),
@@ -387,6 +394,91 @@ async function submitBooking() {
   }
 }
 
+/* ---------- Live time-slot loader ---------- */
+// When the customer picks a date, we call GET /api/slots?date=YYYY-MM-DD
+// and populate #book-time with only the 2-hour slots Tyson is actually
+// free for (accounting for existing calendar events + 90min buffer).
+// If the API is unreachable (file:// preview, pre-deploy, network hiccup),
+// we fall back to a safe static set of slots so the form still works.
+const FALLBACK_TIME_SLOTS_WEEKDAY = [
+  { value: '11:30', label: '11:30 AM' },
+  { value: '12:30', label: '12:30 PM' },
+  { value: '13:30', label: '1:30 PM'  },
+  { value: '14:30', label: '2:30 PM'  },
+  { value: '15:30', label: '3:30 PM'  },
+  { value: '16:30', label: '4:30 PM'  },
+  { value: '17:30', label: '5:30 PM'  }
+];
+const FALLBACK_TIME_SLOTS_WEEKEND = [
+  { value: '08:00', label: '8:00 AM'  },
+  { value: '09:00', label: '9:00 AM'  },
+  { value: '10:00', label: '10:00 AM' },
+  { value: '11:00', label: '11:00 AM' },
+  { value: '12:00', label: '12:00 PM' },
+  { value: '13:00', label: '1:00 PM'  },
+  { value: '14:00', label: '2:00 PM'  },
+  { value: '15:00', label: '3:00 PM'  },
+  { value: '16:00', label: '4:00 PM'  },
+  { value: '17:00', label: '5:00 PM'  },
+  { value: '18:00', label: '6:00 PM'  }
+];
+
+function setTimeOptions(selectEl, placeholder, slots) {
+  selectEl.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = placeholder;
+  selectEl.appendChild(ph);
+  for (const s of slots) {
+    const opt = document.createElement('option');
+    opt.value = s.value;
+    opt.textContent = s.label;
+    selectEl.appendChild(opt);
+  }
+}
+
+async function refreshTimeSlots() {
+  const dateInput = $('#book-date');
+  const timeSel   = $('#book-time');
+  if (!dateInput || !timeSel) return;
+
+  const date = dateInput.value;
+  if (!date) {
+    setTimeOptions(timeSel, 'Pick a date first…', []);
+    timeSel.disabled = true;
+    return;
+  }
+
+  // Figure out weekend/weekday for the fallback set
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const isWeekend = (dow === 0 || dow === 6);
+  const fallback = isWeekend ? FALLBACK_TIME_SLOTS_WEEKEND : FALLBACK_TIME_SLOTS_WEEKDAY;
+
+  // Loading state
+  setTimeOptions(timeSel, 'Loading available times…', []);
+  timeSel.disabled = true;
+
+  try {
+    const res = await fetch(`/api/slots?date=${encodeURIComponent(date)}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const slots = Array.isArray(data?.available) ? data.available : [];
+    if (slots.length === 0) {
+      setTimeOptions(timeSel, 'No openings that day — try another date', []);
+      timeSel.disabled = true;
+      return;
+    }
+    setTimeOptions(timeSel, 'Pick a time…', slots);
+    timeSel.disabled = false;
+  } catch (err) {
+    // Offline / preview fallback — show static weekday/weekend set so the
+    // form still works. Tyson can fix any conflict manually via text.
+    console.warn('[ShinePro] /api/slots unavailable — using fallback slots:', err);
+    setTimeOptions(timeSel, 'Pick a time…', fallback);
+    timeSel.disabled = false;
+  }
+}
+
 function initBookingModal() {
   // All "Book Now" buttons scattered across the page
   ['#nav-book-btn','#hero-book-btn','#services-book-btn','#gallery-book-btn','#contact-book-btn']
@@ -425,7 +517,15 @@ function initBookingModal() {
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
     dateInput.min = `${yyyy}-${mm}-${dd}`;
+
+    // Whenever the customer picks/changes a date, live-load Tyson's
+    // actually-free 2-hour slots for that day.
+    dateInput.addEventListener('change', refreshTimeSlots);
+    dateInput.addEventListener('input',  refreshTimeSlots);
   }
+
+  // Initial empty state for the time dropdown
+  refreshTimeSlots();
 }
 
 /* ---------- Gallery lightbox ---------- */

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard — ShinePro Exterior</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0a1738" />
+  <link rel="icon" type="image/jpeg" href="/assets/logo/logo-square-navy.jpg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .btn-primary { background:#eab308; color:#0a1738; font-weight:800; padding:12px 20px; border-radius:10px; font-size:15px; border:0; cursor:pointer; transition:all .15s; }
+    .btn-primary:hover:not(:disabled) { filter:brightness(1.06); transform:translateY(-1px); }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-secondary { background:#0a1738; color:#fff; font-weight:700; padding:12px 20px; border-radius:10px; font-size:14px; border:0; cursor:pointer; }
+    .btn-secondary:hover { filter:brightness(1.15); }
+    .btn-ghost { background:#e2e8f0; color:#0f172a; font-weight:600; padding:10px 16px; border-radius:8px; font-size:13px; border:0; cursor:pointer; }
+    .btn-danger { background:#ef4444; color:#fff; font-weight:700; padding:10px 16px; border-radius:8px; font-size:13px; border:0; cursor:pointer; }
+    .input { padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:15px; background:#fff; width:100%; }
+    .input:focus { outline:2px solid #3b82f6; outline-offset:1px; border-color:#3b82f6; }
+    .card { background:#fff; border-radius:14px; padding:20px; box-shadow:0 2px 12px rgba(10,23,56,0.06); }
+    .job-card { border-left:4px solid #3b82f6; }
+    .job-card.today    { border-left-color:#10b981; }
+    .job-card.tomorrow { border-left-color:#eab308; }
+    .job-card.blocked  { border-left-color:#94a3b8; background:#f8fafc; }
+    .stat-num { font-size:32px; font-weight:800; color:#0a1738; line-height:1; }
+    .stat-lbl { font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:.5px; margin-top:4px; font-weight:600; }
+    .tag { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; padding:2px 8px; border-radius:999px; }
+    .tag-money { background:#d1fae5; color:#065f46; }
+    .tag-block { background:#e2e8f0; color:#334155; }
+    details summary { cursor:pointer; list-style:none; }
+    details summary::-webkit-details-marker { display:none; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+  <!-- ========================================== -->
+  <!-- Login screen                                -->
+  <!-- ========================================== -->
+  <section id="login-screen" class="max-w-md mx-auto px-4 py-16">
+    <div class="text-center mb-6">
+      <img src="/assets/logo/logo-square-navy.jpg" alt="ShinePro" class="w-20 h-20 rounded-2xl shadow mx-auto mb-4" />
+      <h1 class="text-3xl font-extrabold text-slate-900">Admin Dashboard</h1>
+      <p class="text-slate-600 mt-1">Enter the admin password to continue.</p>
+    </div>
+    <form id="login-form" class="card space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2" for="login-pass">Password</label>
+        <input id="login-pass" type="password" class="input" autocomplete="current-password" required autofocus />
+      </div>
+      <button type="submit" class="btn-primary w-full">🔓 Sign in</button>
+      <p id="login-error" class="hidden text-sm text-red-600 text-center"></p>
+    </form>
+  </section>
+
+  <!-- ========================================== -->
+  <!-- Dashboard                                    -->
+  <!-- ========================================== -->
+  <section id="dashboard" class="hidden max-w-6xl mx-auto px-4 py-6">
+
+    <!-- Header -->
+    <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div class="flex items-center gap-3">
+        <img src="/assets/logo/logo-square-navy.jpg" alt="ShinePro" class="w-12 h-12 rounded-xl" />
+        <div>
+          <h1 class="text-2xl font-extrabold text-slate-900 leading-none">ShinePro Admin</h1>
+          <p class="text-xs text-slate-500 mt-1">Signed in · <span id="expires-in"></span></p>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button id="refresh-btn" class="btn-ghost">🔄 Refresh</button>
+        <button id="block-btn"   class="btn-secondary">⛔ Block off time</button>
+        <button id="logout-btn"  class="btn-ghost">Log out</button>
+      </div>
+    </header>
+
+    <!-- Stats strip -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="card"><div class="stat-num" id="stat-today">–</div><div class="stat-lbl">Today</div></div>
+      <div class="card"><div class="stat-num" id="stat-tomorrow">–</div><div class="stat-lbl">Tomorrow</div></div>
+      <div class="card"><div class="stat-num" id="stat-week">–</div><div class="stat-lbl">This week</div></div>
+      <div class="card"><div class="stat-num" id="stat-revenue">–</div><div class="stat-lbl">Est. revenue (upcoming)</div></div>
+    </div>
+
+    <!-- Job groups -->
+    <div id="job-groups" class="space-y-6"></div>
+
+    <p class="text-center text-xs text-slate-400 mt-10">
+      Showing the next 60 days from Tyson's calendar. Revenue is estimated from window counts.
+    </p>
+  </section>
+
+  <!-- Block-off modal -->
+  <div id="block-overlay" class="hidden fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4">
+    <div class="card max-w-md w-full">
+      <h3 class="text-xl font-bold text-slate-900 mb-3">Block off time</h3>
+      <p class="text-sm text-slate-600 mb-4">Customers won't be offered any slot that overlaps this window.</p>
+      <form id="block-form" class="space-y-3">
+        <div>
+          <label class="text-sm font-semibold text-slate-700">Date</label>
+          <input id="block-date" type="date" class="input mt-1" required />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm font-semibold text-slate-700">Start</label>
+            <input id="block-start" type="time" class="input mt-1" required />
+          </div>
+          <div>
+            <label class="text-sm font-semibold text-slate-700">End</label>
+            <input id="block-end" type="time" class="input mt-1" required />
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-slate-700">Reason (optional)</label>
+          <input id="block-reason" type="text" class="input mt-1" placeholder="Doctor appointment, lunch, day off..." />
+        </div>
+        <div class="flex gap-2 pt-2">
+          <button type="submit" class="btn-primary flex-1">Block it</button>
+          <button type="button" id="block-cancel" class="btn-ghost flex-1">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+<script>
+/* =======================================================
+   Admin Dashboard — client-side
+   Password → /api/admin-auth → token in localStorage
+   Then → /api/admin-jobs + /api/admin-block
+   ======================================================= */
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const STORAGE_KEY = 'shinepro:admin-token';
+  const STORAGE_EXP = 'shinepro:admin-expires';
+
+  const loginScreen = $('#login-screen');
+  const dashboard   = $('#dashboard');
+  const loginForm   = $('#login-form');
+
+  // -------- Boot: if token valid, skip login --------
+  const saved = localStorage.getItem(STORAGE_KEY);
+  const savedExp = parseInt(localStorage.getItem(STORAGE_EXP) || '0', 10);
+  if (saved && savedExp > Date.now()) {
+    showDashboard();
+  }
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = $('#login-error');
+    err.classList.add('hidden');
+    const btn = loginForm.querySelector('button[type="submit"]');
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      const r = await fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: $('#login-pass').value })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        err.textContent = data.error || 'Wrong password';
+        err.classList.remove('hidden');
+        return;
+      }
+      localStorage.setItem(STORAGE_KEY, data.token);
+      localStorage.setItem(STORAGE_EXP, String(data.expiresAt));
+      showDashboard();
+    } catch (e2) {
+      err.textContent = 'Network error. Try again.';
+      err.classList.remove('hidden');
+    } finally {
+      btn.disabled = false; btn.textContent = '🔓 Sign in';
+    }
+  });
+
+  $('#logout-btn')?.addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_EXP);
+    location.reload();
+  });
+
+  $('#refresh-btn')?.addEventListener('click', loadJobs);
+
+  // -------- Dashboard --------
+  async function showDashboard() {
+    loginScreen.classList.add('hidden');
+    dashboard.classList.remove('hidden');
+    updateExpiresLabel();
+    setInterval(updateExpiresLabel, 60000);
+    loadJobs();
+    wireBlockModal();
+  }
+
+  function updateExpiresLabel() {
+    const exp = parseInt(localStorage.getItem(STORAGE_EXP) || '0', 10);
+    const hoursLeft = Math.max(0, Math.round((exp - Date.now()) / (60 * 60 * 1000)));
+    $('#expires-in').textContent = `session expires in ~${hoursLeft}h`;
+  }
+
+  async function loadJobs() {
+    const groupsEl = $('#job-groups');
+    groupsEl.innerHTML = '<div class="card text-center text-slate-500">Loading jobs from Tyson\'s calendar…</div>';
+    try {
+      const r = await fetch('/api/admin-jobs', {
+        headers: { 'Authorization': 'Bearer ' + localStorage.getItem(STORAGE_KEY) },
+        cache: 'no-store'
+      });
+      if (r.status === 401) {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STORAGE_EXP);
+        location.reload();
+        return;
+      }
+      const data = await r.json();
+      renderStats(data);
+      renderGroups(data.groups);
+    } catch (e) {
+      groupsEl.innerHTML = `<div class="card text-center text-red-600">Could not load jobs. ${escapeHtml(String(e))}</div>`;
+    }
+  }
+
+  function renderStats(data) {
+    const g = data.groups || {};
+    $('#stat-today').textContent    = (g.today    || []).filter(j => j.isShinePro).length;
+    $('#stat-tomorrow').textContent = (g.tomorrow || []).filter(j => j.isShinePro).length;
+    const week = ((g.today||[]).length + (g.tomorrow||[]).length + (g.thisWeek||[]).length);
+    $('#stat-week').textContent = week;
+    $('#stat-revenue').textContent = data.totalRevenueEstimate ? ('$' + data.totalRevenueEstimate.toLocaleString()) : '$0';
+  }
+
+  function renderGroups(groups) {
+    const el = $('#job-groups');
+    const sections = [
+      { key: 'today',    title: '📅 Today',        empty: 'Nothing on the books for today.' },
+      { key: 'tomorrow', title: '⏭️ Tomorrow',      empty: 'No jobs tomorrow.' },
+      { key: 'thisWeek', title: '🗓️ Rest of this week', empty: 'Nothing else this week.' },
+      { key: 'later',    title: '🔭 Later',         empty: 'Nothing scheduled further out.' }
+    ];
+    el.innerHTML = sections.map(sec => {
+      const items = groups[sec.key] || [];
+      return `
+        <section>
+          <h2 class="text-lg font-extrabold text-slate-900 mb-3">${sec.title} <span class="text-sm font-semibold text-slate-500">(${items.length})</span></h2>
+          ${items.length === 0 ? `<div class="card text-slate-500 text-sm">${sec.empty}</div>` : items.map(j => jobCardHtml(j, sec.key)).join('')}
+        </section>`;
+    }).join('');
+  }
+
+  function jobCardHtml(j, sectionKey) {
+    const cls = j.isBlock ? 'blocked' : sectionKey;
+    const priceTag = j.revenueEstimate
+      ? `<span class="tag tag-money">≈ $${j.revenueEstimate}</span>`
+      : (j.isBlock ? '<span class="tag tag-block">Blocked</span>' : '');
+    const phoneLink = j.phone ? `<a href="tel:${escapeAttr(j.phone)}" class="text-blue-600 font-semibold">${escapeHtml(j.phone)}</a>` : '';
+    const mapLink = j.address ? `<a href="https://maps.google.com/?q=${encodeURIComponent(j.address)}" target="_blank" class="text-blue-600 underline">${escapeHtml(j.address)}</a>` : '';
+    const textBtn = j.phone ? `<a class="btn-ghost" href="sms:${escapeAttr(j.phone)}">📱 Text</a>` : '';
+    const callBtn = j.phone ? `<a class="btn-ghost" href="tel:${escapeAttr(j.phone)}">📞 Call</a>` : '';
+    const mapBtn  = j.address ? `<a class="btn-ghost" href="https://maps.google.com/?q=${encodeURIComponent(j.address)}" target="_blank">🗺️ Directions</a>` : '';
+    const calBtn  = j.link ? `<a class="btn-ghost" href="${escapeAttr(j.link)}" target="_blank">📅 Event</a>` : '';
+
+    const details = [
+      j.windowCount && ['🪟 Windows', j.windowCount],
+      j.gateCode    && ['🔑 Gate',    j.gateCode],
+      j.pets        && ['🐕 Pets',    j.pets],
+      j.coupon      && ['🎟️ Coupon',  j.coupon],
+      j.notes       && ['📝 Notes',   j.notes],
+      j.email       && ['✉️ Email',   j.email]
+    ].filter(Boolean);
+
+    return `
+      <article class="card job-card ${cls} mb-3">
+        <header class="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div>
+            <div class="text-xs text-slate-500 font-semibold uppercase tracking-wide">${escapeHtml(j.dateLabel)} · ${escapeHtml(j.timeLabel)}</div>
+            <h3 class="text-lg font-extrabold text-slate-900 mt-1">${escapeHtml(j.service || j.summary)}</h3>
+            ${j.name ? `<p class="text-slate-700 font-semibold">${escapeHtml(j.name)}</p>` : ''}
+          </div>
+          <div class="flex flex-col items-end gap-1">${priceTag}</div>
+        </header>
+        ${mapLink ? `<p class="text-sm text-slate-700 mb-1">📍 ${mapLink}</p>` : ''}
+        ${phoneLink ? `<p class="text-sm text-slate-700 mb-1">📞 ${phoneLink}</p>` : ''}
+        ${details.length ? `
+          <details class="text-sm text-slate-600 mt-2">
+            <summary class="font-semibold text-slate-700">▸ More details</summary>
+            <dl class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-y-1">
+              ${details.map(([l, v]) => `<div><span class="text-slate-500">${l}:</span> <span class="text-slate-800">${escapeHtml(v)}</span></div>`).join('')}
+            </dl>
+          </details>` : ''}
+        <footer class="flex flex-wrap gap-2 mt-3">${callBtn}${textBtn}${mapBtn}${calBtn}</footer>
+      </article>`;
+  }
+
+  // -------- Block-off modal --------
+  function wireBlockModal() {
+    const overlay = $('#block-overlay');
+    const open = () => {
+      overlay.classList.remove('hidden');
+      const today = new Date();
+      const iso = today.toISOString().slice(0, 10);
+      $('#block-date').min = iso;
+      if (!$('#block-date').value) $('#block-date').value = iso;
+    };
+    const close = () => overlay.classList.add('hidden');
+    $('#block-btn').addEventListener('click', open);
+    $('#block-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    $('#block-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true; btn.textContent = 'Blocking…';
+      try {
+        const r = await fetch('/api/admin-block', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + localStorage.getItem(STORAGE_KEY)
+          },
+          body: JSON.stringify({
+            date:      $('#block-date').value,
+            startTime: $('#block-start').value,
+            endTime:   $('#block-end').value,
+            reason:    $('#block-reason').value
+          })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || 'Could not block time.');
+        close();
+        $('#block-reason').value = '';
+        loadJobs();
+      } catch (err) {
+        alert(err.message || 'Something went wrong.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Block it';
+      }
+    });
+  }
+
+  /* helpers */
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+})();
+</script>
+</body>
+</html>
