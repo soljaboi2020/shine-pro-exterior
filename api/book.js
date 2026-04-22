@@ -19,7 +19,7 @@
 // =====================================================================
 
 import { google } from 'googleapis';
-import { sendBookingConfirmation } from './_emails.js';
+import { sendBookingConfirmation, sendOwnerBookingAlert } from './_emails.js';
 
 // Job duration — kept in sync with /api/slots.js.
 // Booking form posts preferredTime in "HH:MM" 24h format (e.g. "13:30").
@@ -109,15 +109,31 @@ export default async function handler(req, res) {
     // We await so we can report email status in the response, but a failed
     // email never voids the booking — the calendar event is the source of truth.
     const siteUrl = resolveSiteUrl(req);
-    const emailResult = await sendBookingConfirmation({
-      booking: body,
-      eventId: data.id,
-      eventLink: data.htmlLink,
-      siteUrl
-    }).catch(err => {
-      console.error('[ShinePro] sendBookingConfirmation threw:', err);
-      return { sent: false, reason: 'exception' };
-    });
+
+    // Customer confirmation + owner alert fire in parallel.
+    // Either email failing never voids the booking — the calendar event is
+    // the source of truth. We report both statuses in the response for debug.
+    const [emailResult, ownerAlertResult] = await Promise.all([
+      sendBookingConfirmation({
+        booking: body,
+        eventId: data.id,
+        eventLink: data.htmlLink,
+        siteUrl
+      }).catch(err => {
+        console.error('[ShinePro] sendBookingConfirmation threw:', err);
+        return { sent: false, reason: 'exception' };
+      }),
+      sendOwnerBookingAlert({
+        booking: body,
+        eventId: data.id,
+        eventLink: data.htmlLink,
+        siteUrl,
+        kind: 'new'
+      }).catch(err => {
+        console.error('[ShinePro] sendOwnerBookingAlert threw:', err);
+        return { sent: false, reason: 'exception' };
+      })
+    ]);
 
     return res.status(200).json({
       ok: true,
@@ -125,7 +141,8 @@ export default async function handler(req, res) {
       message: 'Booking confirmed! You should see it on Tyson\'s calendar.',
       eventId: data.id,
       eventLink: data.htmlLink,
-      emailSent: emailResult.sent === true
+      emailSent: emailResult.sent === true,
+      ownerAlertSent: ownerAlertResult.sent === true
     });
   } catch (err) {
     console.error('[ShinePro] /api/book error:', err);

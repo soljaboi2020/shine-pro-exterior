@@ -19,7 +19,7 @@
 
 import { google } from 'googleapis';
 import { verifyToken } from './_token.js';
-import { sendRescheduleConfirmation } from './_emails.js';
+import { sendRescheduleConfirmation, sendOwnerBookingAlert } from './_emails.js';
 
 const JOB_DURATION_MIN = 120;
 const TIMEZONE = 'America/New_York';
@@ -98,15 +98,27 @@ export default async function handler(req, res) {
     const bookingShape = reconstructBooking(currentEvent, payload.email, newDate, newTime);
 
     const siteUrl = resolveSiteUrl(req);
-    const emailResult = await sendRescheduleConfirmation({
-      booking: bookingShape,
-      eventId: patched.id,
-      eventLink: patched.htmlLink,
-      siteUrl
-    }).catch(err => {
-      console.error('[ShinePro] reschedule email threw:', err);
-      return { sent: false };
-    });
+    const [emailResult, ownerAlertResult] = await Promise.all([
+      sendRescheduleConfirmation({
+        booking: bookingShape,
+        eventId: patched.id,
+        eventLink: patched.htmlLink,
+        siteUrl
+      }).catch(err => {
+        console.error('[ShinePro] reschedule email threw:', err);
+        return { sent: false };
+      }),
+      sendOwnerBookingAlert({
+        booking: bookingShape,
+        eventId: patched.id,
+        eventLink: patched.htmlLink,
+        siteUrl,
+        kind: 'reschedule'
+      }).catch(err => {
+        console.error('[ShinePro] reschedule owner alert threw:', err);
+        return { sent: false };
+      })
+    ]);
 
     return res.status(200).json({
       ok: true,
@@ -114,7 +126,8 @@ export default async function handler(req, res) {
       eventLink: patched.htmlLink,
       newStart: startISO,
       newEnd:   endISO,
-      emailSent: emailResult.sent === true
+      emailSent: emailResult.sent === true,
+      ownerAlertSent: ownerAlertResult.sent === true
     });
   } catch (err) {
     console.error('[ShinePro] /api/reschedule error:', err);
