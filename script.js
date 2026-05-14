@@ -365,38 +365,58 @@ function escapeHtml(s) {
 }
 
 async function submitBooking() {
+  console.log('[booking] submitBooking called at', new Date().toISOString());
   const payload = buildBookingPayload();
   const submitBtn = $('#booking-submit');
   submitBtn.disabled = true;
   submitBtn.textContent = 'Sending…';
 
-  // reCAPTCHA v3 — invisible bot check. Bookings create REAL Google Calendar
-  // events on Tyson's iPhone, so we want bot spam blocked before it reaches
-  // the calendar insert. Returns null if grecaptcha isn't ready (local dev,
-  // network issue) — server then falls back to allow-through with a warning.
+  // 🚨 WATCHDOG — no matter what goes wrong below, force the button back
+  // to a usable state after 25 sec. Prevents "frozen Sending..." even if
+  // an unhandled exception escapes the try/finally somewhere upstream.
+  const watchdog = setTimeout(() => {
+    if (submitBtn.textContent === 'Sending…') {
+      console.error('[booking] WATCHDOG fired — submitBooking ran >25s without completing');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '📤 Send request';
+      alert("Sorry, this is taking longer than expected. Please text Tyson at (407) 754-5565 — we'll book you in 2 minutes.");
+    }
+  }, 25000);
+
+  // reCAPTCHA v3 — wrapped in Promise.race so EITHER ready() OR execute()
+  // hanging gets bounded by a single 8-sec total budget. Without race(),
+  // execute() can hang forever even when ready() resolves quickly.
   let recaptchaToken = null;
   try {
     const key = window.RECAPTCHA_SITE_KEY;
     if (key && typeof grecaptcha !== 'undefined') {
-      recaptchaToken = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('grecaptcha.ready timeout')), 5000);
-        grecaptcha.ready(() => {
-          clearTimeout(timeout);
-          grecaptcha.execute(key, { action: 'shinepro_book' }).then(resolve).catch(reject);
-        });
-      });
+      console.log('[booking] requesting reCAPTCHA token...');
+      const t0 = Date.now();
+      recaptchaToken = await Promise.race([
+        new Promise((resolve, reject) => {
+          grecaptcha.ready(() => {
+            grecaptcha.execute(key, { action: 'shinepro_book' }).then(resolve).catch(reject);
+          });
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('reCAPTCHA total timeout (8s)')), 8000)
+        )
+      ]);
+      console.log('[booking] reCAPTCHA token acquired in', Date.now() - t0, 'ms');
+    } else {
+      console.warn('[booking] grecaptcha unavailable — proceeding without token');
     }
   } catch (rcErr) {
-    console.warn('[booking] reCAPTCHA failed:', rcErr);
+    console.warn('[booking] reCAPTCHA failed (proceeding anyway):', rcErr);
   }
   payload.recaptchaToken = recaptchaToken;
 
-  // Hard timeout — if the API doesn't respond in 15 sec, abort so the form
-  // never sits frozen on "Sending..." like it did during the 2026-05-14 OAuth
-  // outage. Customer needs a clear answer either way.
+  // Hard timeout — abort the fetch if the API doesn't respond in 15 sec.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
 
+  console.log('[booking] POSTing /api/book...');
+  const tFetch = Date.now();
   let res = null;
   let fetchErr = null;
   let serverError = null;
@@ -407,7 +427,7 @@ async function submitBooking() {
       body: JSON.stringify(payload),
       signal: controller.signal
     });
-    // Try to parse the error body so we can surface it (e.g. "reCAPTCHA failed")
+    console.log('[booking] /api/book responded', res.status, 'in', Date.now() - tFetch, 'ms');
     if (!res.ok) {
       try {
         const data = await res.json();
@@ -421,6 +441,7 @@ async function submitBooking() {
     console.error('[booking] fetch failed:', err);
   } finally {
     clearTimeout(timer);
+    clearTimeout(watchdog);
     submitBtn.disabled = false;
     submitBtn.textContent = '📤 Send request';
   }
