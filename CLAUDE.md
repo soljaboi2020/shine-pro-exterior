@@ -250,7 +250,22 @@ First deploy will give you a URL like `shine-pro-exterior.vercel.app`. Share it 
 | Images missing | Double-check the `assets/` folder wasn't accidentally moved. |
 | Logo looks pixelated | We're using the 800×800 JPG. We can swap in a higher-res PNG later. |
 
+## 🔑 Required Vercel environment variables (additions only — full list lives in build logs below)
+
+| Var | Purpose |
+|---|---|
+| `RECAPTCHA_SECRET_KEY` | Server-side verification of v3 tokens from the booking form. Site key `6LdRieosAAAAAMp2i8cpN59DdA1GaOX9hWZbI6M` is embedded in HTML (public). **Same key pair** used in `malachi-builds` project. Set the same value in both Vercel projects. |
+| `RECAPTCHA_MIN_SCORE` | Optional, defaults to `0.5`. Reject below this. Tune after seeing real traffic in Vercel logs. |
+
 ## 📅 Change Log
+- **2026-05-14** — **🛡️ reCAPTCHA v3 wired into booking form** (commits `8fe64e4` + `1d31433`, part of `malachi-builds` issue #1).
+  - **Why:** `/api/book` creates real Google Calendar events on Tyson's iPhone. Bot spam = visible-on-device chaos for him. Locked it down.
+  - **Backend:** new `api/_verify-recaptcha.js` (shared pattern with malachi-builds). Verifies token + score (≥0.5) + action match (`shinepro_book`) before any other booking validation. Graceful degradation — allows through if `RECAPTCHA_SECRET_KEY` missing or Google siteverify network fails (rather than breaking the form).
+  - **Frontend (6 pages):** `index.html` + all 5 city pages (`cities/altamonte-springs/`, `cities/heathrow/`, `cities/lake-mary/`, `cities/longwood/`, `cities/winter-park/`) load reCAPTCHA v3 script in `<head>`, hide the badge via CSS, show the Google privacy disclosure in the footer. `script.js` `submitBooking()` calls `grecaptcha.execute()` with action `shinepro_book` and attaches the token to the payload before POST.
+  - **Site key embedded in HTML:** `6LdRieosAAAAAMp2i8cpN59DdA1GaOX9hWZbI6M` (public). Secret key lives in Vercel env as `RECAPTCHA_SECRET_KEY` — **same key pair as malachi-builds project** (one Google reCAPTCHA admin entry registers both domains).
+  - **Files touched:** `api/_verify-recaptcha.js` (new), `api/book.js` (verify-first), `index.html` + 5 city pages (loader + footer notice), `script.js` (`submitBooking()` instrumented).
+  - **Not protected by reCAPTCHA**: `/reschedule.html` form (already protected by HMAC token from the email link) and admin endpoints (already password-gated). They don't need it.
+
 - **2026-04-22 (BUILD #6 — Admin-side reschedule + Owner booking alerts + QR codes)** — Three additions in one session:
   - **Admin-side reschedule flow** — from `/admin`, every ShinePro job card now has a 🔄 **Reschedule** button (non-block events only). Clicking opens a modal showing the current booking summary, a date picker + live-slot dropdown (reuses `/api/slots`), and a Submit button. Submit POSTs to new endpoint `POST /api/admin-reschedule` with the admin session token in `Authorization: Bearer <token>`. Endpoint mirrors `/api/reschedule` but: (a) auths via admin session instead of HMAC token, (b) takes `{ eventId, newDate, newTime }` directly, (c) appends `🔄 Rescheduled by Tyson on <ts>` to the event description. Same `calendar.events.patch` → original event is modified in place (no duplicates on Tyson's phone), customer gets the branded "Booking rescheduled" email automatically.
   - **Owner booking alert (every new booking → email Tyson)** — new `sendOwnerBookingAlert()` helper in `api/_emails.js`. Separate endpoint dedicated to Tyson (not a CC), fired from `api/book.js` (kind=`new`) and `api/reschedule.js` (kind=`reschedule`) in parallel with the customer email. Admin-focused layout: green header bar ("🔔 NEW BOOKING!") / amber bar for reschedules, revenue-estimate banner in gold, full customer details table (name/phone/email/address/windows/gate/pets/coupon/notes), and a 2×2 grid of quick-action buttons (📞 Call / 💬 Text / 📍 Directions via Google Maps / 🗂️ Admin dashboard). `estimateRevenue()` helper re-uses the same linear-interpolation anchor table as the public quote calculator so Tyson sees "💰 Estimated revenue: $250–$275" up top. Goes out from the same verified `bookings@shineproexterior.com`. Admin-reschedule doesn't trigger an alert back to Tyson (he just did it — would be redundant).
