@@ -391,28 +391,69 @@ async function submitBooking() {
   }
   payload.recaptchaToken = recaptchaToken;
 
+  // Hard timeout — if the API doesn't respond in 15 sec, abort so the form
+  // never sits frozen on "Sending..." like it did during the 2026-05-14 OAuth
+  // outage. Customer needs a clear answer either way.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
+  let res = null;
+  let fetchErr = null;
+  let serverError = null;
   try {
-    // Posts to /api/book on Vercel (stubbed for now — real Google-Calendar + email wiring comes next phase).
-    // When there's no backend (file:// or before deploy), fall back to success so the user can still preview the flow.
-    const res = await fetch('/api/book', {
+    res = await fetch('/api/book', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).catch(() => null);
-
-    if (!res || !res.ok) {
-      // Soft-success: surface the booking in a mailto as a backup, then show success UI
-      const mailBody = encodeURIComponent(Object.entries(payload).map(([k,v]) => `${k}: ${v}`).join('\n'));
-      window.open(`mailto:Tysont5076@gmail.com?subject=${encodeURIComponent('New booking request — ShinePro')}&body=${mailBody}`, '_blank');
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    // Try to parse the error body so we can surface it (e.g. "reCAPTCHA failed")
+    if (!res.ok) {
+      try {
+        const data = await res.json();
+        serverError = (data && (data.error || data.detail)) || `Server returned ${res.status}`;
+      } catch {
+        serverError = `Server returned ${res.status}`;
+      }
     }
-    showStep(5);
   } catch (err) {
-    console.error(err);
-    alert('Sorry, something went wrong. Please text us directly at (407) 754-5565.');
+    fetchErr = err;
+    console.error('[booking] fetch failed:', err);
   } finally {
+    clearTimeout(timer);
     submitBtn.disabled = false;
     submitBtn.textContent = '📤 Send request';
   }
+
+  // ---- SUCCESS ----
+  if (res && res.ok) {
+    showStep(5);
+    return;
+  }
+
+  // ---- FAILURE — show a real error, not a fake-success ----
+  // (was previously masking failures with a mailto + showStep(5), which left
+  // customers thinking they'd booked when nothing reached Tyson's calendar.)
+  const userMsg = fetchErr
+    ? (fetchErr.name === 'AbortError'
+        ? "We couldn't reach our system in time. Please text Tyson at (407) 754-5565 — he'll book you in 5 min."
+        : "Connection error. Please text Tyson at (407) 754-5565.")
+    : `We couldn't complete your booking (${serverError || 'unknown error'}). Please text Tyson at (407) 754-5565.`;
+
+  alert(userMsg);
+
+  // Open a prefilled mailto + tel: backup so the customer has options even
+  // if they dismiss the alert.
+  const mailBody = encodeURIComponent(
+    Object.entries(payload)
+      .filter(([k]) => k !== 'recaptchaToken')
+      .map(([k,v]) => `${k}: ${v}`)
+      .join('\n')
+  );
+  window.open(
+    `mailto:Tysont5076@gmail.com?subject=${encodeURIComponent('Booking attempt — system error — please help')}&body=${mailBody}`,
+    '_blank'
+  );
 }
 
 /* ---------- Live time-slot loader ---------- */
