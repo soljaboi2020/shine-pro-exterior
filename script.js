@@ -370,6 +370,27 @@ async function submitBooking() {
   submitBtn.disabled = true;
   submitBtn.textContent = 'Sending…';
 
+  // reCAPTCHA v3 — invisible bot check. Bookings create REAL Google Calendar
+  // events on Tyson's iPhone, so we want bot spam blocked before it reaches
+  // the calendar insert. Returns null if grecaptcha isn't ready (local dev,
+  // network issue) — server then falls back to allow-through with a warning.
+  let recaptchaToken = null;
+  try {
+    const key = window.RECAPTCHA_SITE_KEY;
+    if (key && key !== 'RECAPTCHA_SITE_KEY_PLACEHOLDER' && typeof grecaptcha !== 'undefined') {
+      recaptchaToken = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('grecaptcha.ready timeout')), 5000);
+        grecaptcha.ready(() => {
+          clearTimeout(timeout);
+          grecaptcha.execute(key, { action: 'shinepro_book' }).then(resolve).catch(reject);
+        });
+      });
+    }
+  } catch (rcErr) {
+    console.warn('[booking] reCAPTCHA failed:', rcErr);
+  }
+  payload.recaptchaToken = recaptchaToken;
+
   try {
     // Posts to /api/book on Vercel (stubbed for now — real Google-Calendar + email wiring comes next phase).
     // When there's no backend (file:// or before deploy), fall back to success so the user can still preview the flow.

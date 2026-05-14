@@ -78,6 +78,12 @@
   </script>
 
   <link rel="stylesheet" href="style.css" />
+
+  <!-- reCAPTCHA v3 — invisible bot protection on the booking form. Badge hidden
+       via CSS; required Google disclosure is shown in the footer. -->
+  <script>window.RECAPTCHA_SITE_KEY = 'RECAPTCHA_SITE_KEY_PLACEHOLDER';</script>
+  <script src="https://www.google.com/recaptcha/api.js?render=RECAPTCHA_SITE_KEY_PLACEHOLDER" async defer></script>
+  <style>.grecaptcha-badge { visibility: hidden !important; }</style>
 </head>
 
 <body class="font-sans text-slate-ink bg-paper antialiased">
@@ -608,6 +614,13 @@
     <div class="max-w-7xl mx-auto px-4 md:px-6 mt-10 pt-6 border-t border-paper/10 flex flex-col md:flex-row justify-between gap-3 text-xs md:text-sm text-paper/60">
       <div>&copy; <span id="footer-year"></span> ShinePro Exterior Care. All rights reserved.</div>
       <div>Site by <a href="https://builtbymalachi.com" target="_blank" rel="noopener" class="hover:text-blue-2 underline">Built by Malachi</a> · Made with care for Central Florida ☀️</div>
+    </div>
+    <div class="max-w-7xl mx-auto px-4 md:px-6 mt-3 text-[11px] text-paper/40">
+      This site is protected by reCAPTCHA and the Google
+      <a href="https://policies.google.com/privacy" target="_blank" rel="noopener" class="underline hover:text-paper/70">Privacy Policy</a>
+      and
+      <a href="https://policies.google.com/terms" target="_blank" rel="noopener" class="underline hover:text-paper/70">Terms of Service</a>
+      apply.
     </div>
   </footer>
 

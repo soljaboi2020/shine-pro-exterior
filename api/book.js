@@ -20,6 +20,7 @@
 
 import { google } from 'googleapis';
 import { sendBookingConfirmation, sendOwnerBookingAlert } from './_emails.js';
+import { verifyRecaptcha, RECAPTCHA_REJECT_STATUS } from './_verify-recaptcha.js';
 
 // Job duration — kept in sync with /api/slots.js.
 // Booking form posts preferredTime in "HH:MM" 24h format (e.g. "13:30").
@@ -48,6 +49,14 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+
+    // -------- reCAPTCHA v3 ---------
+    // Invisible bot check FIRST. Bookings create real Google Calendar events
+    // on Tyson's iPhone — bot spam would be visible-on-device chaos.
+    const rc = await verifyRecaptcha(body.recaptchaToken, 'shinepro_book', req);
+    if (!rc.ok) {
+      return res.status(RECAPTCHA_REJECT_STATUS).json({ error: rc.reason });
+    }
 
     // -------- Validation --------
     for (const field of REQUIRED_FIELDS) {
