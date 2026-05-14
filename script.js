@@ -377,7 +377,7 @@ async function submitBooking() {
   let recaptchaToken = null;
   try {
     const key = window.RECAPTCHA_SITE_KEY;
-    if (key && key !== 'RECAPTCHA_SITE_KEY_PLACEHOLDER' && typeof grecaptcha !== 'undefined') {
+    if (key && typeof grecaptcha !== 'undefined') {
       recaptchaToken = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('grecaptcha.ready timeout')), 5000);
         grecaptcha.ready(() => {
